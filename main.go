@@ -36,11 +36,11 @@ func main() {
 func activitiesHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		queryActivities(w, r)
+		getActivities(w, r)
 	}
 }
 
-func queryActivities(w http.ResponseWriter, r *http.Request) {
+func getActivities(w http.ResponseWriter, r *http.Request) {
 	var act []Activity = []Activity{
 		{Id: 1, Title: "activity 1", TypeId: 1},
 		{Id: 2, Title: "activity 2", TypeId: 2},
