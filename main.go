@@ -18,7 +18,9 @@ type router struct {
 }
 
 func newRouter() *router {
-	return &router{}
+	return &router{
+		routes: make([]*route, 0),
+	}
 }
 
 func (rtr *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
