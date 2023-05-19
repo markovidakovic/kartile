@@ -55,12 +55,10 @@ func main() {
 
 	r := newRouter()
 
-	r.handleFunc("/activities/{activityId}", activitiesHandler)
+	r.handleFunc("/activities/{activityId}", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("hello"))
+	})
 
 	fmt.Println("server running on localhost:5000")
 	http.ListenAndServe(":5000", r)
-}
-
-func activitiesHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("activities handler"))
 }
