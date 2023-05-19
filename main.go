@@ -10,7 +10,11 @@ import (
 )
 
 type route struct {
-	handler http.Handler
+	handler http.HandlerFunc
+}
+
+type matchedRoute struct {
+	route *route
 }
 
 type router struct {
@@ -24,11 +28,15 @@ func newRouter() *router {
 }
 
 func (rtr *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r.URL.Path)
 	http.NotFound(w, r)
 }
 
 func (rtr *router) handleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
-	fmt.Println("register handler")
+	rt := &route{
+		handler: handler,
+	}
+	rtr.routes = append(rtr.routes, rt)
 }
 
 type activity struct {
@@ -50,7 +58,7 @@ func main() {
 	r.handleFunc("/activities/{activityId}", activitiesHandler)
 
 	fmt.Println("server running on localhost:5000")
-	http.ListenAndServe(":5000", nil)
+	http.ListenAndServe(":5000", r)
 }
 
 func activitiesHandler(w http.ResponseWriter, r *http.Request) {
