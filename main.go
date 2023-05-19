@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
 
 type route struct {
 	handler http.HandlerFunc
+	pattern string
 }
 
 type matchedRoute struct {
@@ -28,13 +30,22 @@ func newRouter() *router {
 }
 
 func (rtr *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r.URL.Path)
+	incomingPath := r.URL.Path
+	incomingPathParts := strings.Split(incomingPath, "/")
+	fmt.Println(incomingPathParts)
+
+	for _, rt := range rtr.routes {
+		patternParts := strings.Split(rt.pattern, "/")
+		fmt.Println(patternParts)
+	}
+
 	http.NotFound(w, r)
 }
 
 func (rtr *router) handleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 	rt := &route{
 		handler: handler,
+		pattern: pattern,
 	}
 	rtr.routes = append(rtr.routes, rt)
 }
