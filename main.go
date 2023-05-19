@@ -9,6 +9,26 @@ import (
 	_ "github.com/lib/pq"
 )
 
+type route struct {
+	handler http.Handler
+}
+
+type router struct {
+	routes []*route
+}
+
+func newRouter() *router {
+	return &router{}
+}
+
+func (rtr *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	http.NotFound(w, r)
+}
+
+func (rtr *router) handleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
+	fmt.Println("register handler")
+}
+
 type activity struct {
 	Id     int    `json:"id"`
 	Title  string `json:"title"`
@@ -23,6 +43,14 @@ func main() {
 	}
 	defer db.Close()
 
+	r := newRouter()
+
+	r.handleFunc("/activities/{activityId}", activitiesHandler)
+
 	fmt.Println("server running on localhost:5000")
 	http.ListenAndServe(":5000", nil)
+}
+
+func activitiesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("activities handler"))
 }
