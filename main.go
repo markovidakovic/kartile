@@ -78,6 +78,29 @@ func isParameter(part string) bool {
 	return strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")
 }
 
+func braceIndices(s string) ([]int, error) {
+	var level, idx int
+	var idxs []int
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			if level++; level == 1 {
+				idx = i
+			}
+		case '}':
+			if level--; level == 0 {
+				idxs = append(idxs, idx, i+1)
+			} else if level < 0 {
+				return nil, fmt.Errorf("unbalanced braces in %q", s)
+			}
+		}
+	}
+	if level != 0 {
+		return nil, fmt.Errorf("unbalanced brances in %q", s)
+	}
+	return idxs, nil
+}
+
 type activity struct {
 	Id     int    `json:"id"`
 	Title  string `json:"title"`
