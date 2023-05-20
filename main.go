@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -10,21 +11,27 @@ import (
 	_ "github.com/lib/pq"
 )
 
+type contextKey int
+
+const (
+	paramsKey contextKey = iota
+)
+
 type route struct {
 	handler http.HandlerFunc
 	pattern string
 }
 
-func (rt *route) match(patternParts []string, incomingParts []string) bool {
+func (rt *route) match(patternParts []string, incomingParts []string, matchedRoute *matchedRoute) bool {
 	var isMatch bool = false
 	if len(patternParts) != len(incomingParts) {
 		isMatch = false
 		return isMatch
 	}
 
-	// loop pattern parts and compare it to incoming parts and check if a part is a parameter
+	// loop pattern parts and compare it to incoming parts and also check if a part is an parameter
 	for i := 0; i < len(patternParts); i++ {
-		if patternParts[i] != incomingParts[i] && !isParameter(patternParts[i]) {
+		if patternParts[i] != incomingParts[i] && !isParameter(patternParts[i], incomingParts[i], matchedRoute) {
 			isMatch = false
 			break
 		} else {
@@ -36,7 +43,8 @@ func (rt *route) match(patternParts []string, incomingParts []string) bool {
 }
 
 type matchedRoute struct {
-	route *route
+	route  *route
+	params map[string]string
 }
 
 type router struct {
@@ -54,12 +62,16 @@ func (rtr *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	incomingPathParts := strings.Split(incomingPath, "/")
 
 	var handler http.Handler
+	var matchedRoute matchedRoute = matchedRoute{
+		params: make(map[string]string),
+	}
 	handler = http.NotFoundHandler()
 
 	for _, rt := range rtr.routes {
 		patternParts := strings.Split(rt.pattern, "/")
-		if isMatch := rt.match(patternParts, incomingPathParts); isMatch {
+		if isMatch := rt.match(patternParts, incomingPathParts, &matchedRoute); isMatch {
 			handler = rt.handler
+			r = requestWithParams(r, matchedRoute.params)
 		}
 	}
 
@@ -74,8 +86,29 @@ func (rtr *router) handleFunc(pattern string, handler func(http.ResponseWriter, 
 	rtr.routes = append(rtr.routes, rt)
 }
 
-func isParameter(part string) bool {
-	return strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")
+func params(r *http.Request) map[string]string {
+	if rp := r.Context().Value(paramsKey); rp != nil {
+		return rp.(map[string]string)
+	}
+	return nil
+}
+
+func requestWithParams(r *http.Request, params map[string]string) *http.Request {
+	ctx := context.WithValue(r.Context(), paramsKey, params)
+	return r.WithContext(ctx)
+}
+
+func isParameter(pp string, ip string, matchedRoute *matchedRoute) bool {
+	if strings.HasPrefix(pp, "{") && strings.HasSuffix(pp, "}") {
+		idxs, err := braceIndices(pp)
+		if err != nil {
+			fmt.Println(err)
+		}
+		paramTitle := pp[idxs[0]+1 : idxs[1]-1]
+		matchedRoute.params[paramTitle] = ip
+		return true
+	}
+	return false
 }
 
 func braceIndices(s string) ([]int, error) {
@@ -124,6 +157,8 @@ func main() {
 		w.Write([]byte("activities"))
 	})
 	r.handleFunc("/activities/{activityId}", func(w http.ResponseWriter, r *http.Request) {
+		params := params(r)
+		fmt.Println(params)
 		w.Write([]byte("activities by id"))
 	})
 
