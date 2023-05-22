@@ -8,6 +8,10 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v4"
+	"golang.org/x/crypto/bcrypt"
 
 	_ "github.com/lib/pq"
 )
@@ -16,6 +20,10 @@ type contextKey int
 
 const (
 	paramsKey contextKey = iota
+)
+
+var (
+	signingKey = []byte("secret")
 )
 
 type route struct {
@@ -152,6 +160,18 @@ type activity struct {
 	TypeId int    `json:"type_id"`
 }
 
+type account struct {
+	Id       int    `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	password string
+}
+
+type authAccount struct {
+	account
+	AccessToken string `json:"access_token"`
+}
+
 func main() {
 	connStr := "postgresql://kartile:your_password@localhost:5432/kartile"
 	db, err := sql.Open("postgres", connStr)
@@ -166,13 +186,113 @@ func main() {
 	r.handleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("hello"))
 	})
+	r.handleFunc("/auth/signup", handleAuth)
+	r.handleFunc("/auth/tokens/access", handleAuth)
 	r.handleFunc("/activities", handleActivities)
 	r.handleFunc("/activities/{activityId}", handleActivitiesById)
 	r.handleFunc("/activities/types", handleActivityTypes)
 	r.handleFunc("/activities/types/{typeId}", handleActivityTypesById)
+	r.handleFunc("/accounts", handleAccounts)
+	r.handleFunc("/accounts/{accountId}", handleAccountsById)
 
 	fmt.Println("server running on localhost:5000")
 	http.ListenAndServe(":5000", r)
+}
+
+func accessTokenMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("access token middleware")
+		fmt.Println(r.Header)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func handleAuth(w http.ResponseWriter, r *http.Request) {
+	var m string = r.Method
+	var p string = r.URL.Path
+	if m == "POST" && p == "/auth/signup" {
+		a, err := createAccount(w, r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		resp, err := json.Marshal(a)
+		if err != nil {
+			fmt.Println(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write(resp)
+	} else if m == "POST" && p == "/auth/tokens/access" {
+		a, err := getAuthAccount(w, r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		resp, err := json.Marshal(a)
+		if err != nil {
+			fmt.Println(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp)
+	}
+}
+
+func createAccount(w http.ResponseWriter, r *http.Request) (authAccount, error) {
+	type request struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	var data request
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		return authAccount{}, nil
+	}
+	defer r.Body.Close()
+	// hash pwd
+	ep, err := encryptPwd(data.Password)
+	if err != nil {
+		return authAccount{}, err
+	}
+	var resp authAccount
+	srvr.db.QueryRow("INSERT INTO accounts (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email", data.Name, data.Email, ep).Scan(&resp.Id, &resp.Name, &resp.Email)
+	accessToken, err := generateAccessToken(resp.Email)
+	if err != nil {
+		return authAccount{}, err
+	}
+	resp.AccessToken = accessToken
+	return resp, nil
+}
+
+func getAuthAccount(w http.ResponseWriter, r *http.Request) (*authAccount, error) {
+	type request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	var data request
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		return nil, err
+	}
+	var acc account
+	srvr.db.QueryRow("SELECT id, name, email, password FROM accounts WHERE email = $1", data.Email).Scan(&acc.Id, &acc.Name, &acc.Email, &acc.password)
+	err = comparePwd(data.Password, acc.password)
+	if err != nil {
+		return nil, err
+	}
+	token, err := generateAccessToken(acc.Email)
+	if err != nil {
+		return nil, err
+	}
+	var authAcc authAccount = authAccount{
+		account: account{
+			Id:    acc.Id,
+			Name:  acc.Name,
+			Email: acc.Email,
+		},
+		AccessToken: token,
+	}
+	return &authAcc, nil
 }
 
 func handleActivityTypes(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +472,13 @@ func handleActivitiesById(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(resp)
+	case "DELETE":
+		err := deleteActivityById(w, r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -363,4 +490,129 @@ func getActivityById(w http.ResponseWriter, r *http.Request) (activity, error) {
 		return activity{}, err
 	}
 	return act, nil
+}
+
+func deleteActivityById(w http.ResponseWriter, r *http.Request) error {
+	params := params(r)
+	_, err := srvr.db.Exec("DELETE FROM activities WHERE id = $1", params["activityId"])
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func handleAccounts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		a, err := getAccounts(w, r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		resp, err := json.Marshal(a)
+		if err != nil {
+			fmt.Println(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp)
+	}
+}
+
+func getAccounts(w http.ResponseWriter, r *http.Request) ([]account, error) {
+	rows, err := srvr.db.Query("SELECT id, name, email FROM accounts")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var accs []account
+	for rows.Next() {
+		var acc account
+		if err := rows.Scan(&acc.Id, &acc.Name, &acc.Email); err != nil {
+			return nil, err
+		}
+		accs = append(accs, acc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return accs, nil
+}
+
+func handleAccountsById(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		a, err := getAccountById(w, r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		resp, err := json.Marshal(a)
+		if err != nil {
+			fmt.Println(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp)
+	}
+}
+
+func getAccountById(w http.ResponseWriter, r *http.Request) (*account, error) {
+	params := params(r)
+	var acc account
+	err := srvr.db.QueryRow("SELECT id, name, email FROM accounts WHERE id = $1", params["accountId"]).Scan(&acc.Id, &acc.Name, &acc.Email)
+	if err != nil {
+		return nil, err
+	}
+	return &acc, nil
+}
+
+func encryptPwd(p string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(p), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func comparePwd(p string, ep string) error {
+	err := bcrypt.CompareHashAndPassword([]byte(ep), []byte(p))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type claims struct {
+	Email string `json:"email"`
+	jwt.StandardClaims
+}
+
+func generateAccessToken(email string) (string, error) {
+	c := claims{
+		Email: email,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(time.Hour * 24).Unix(),
+			Issuer:    "ja",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
+	tokenString, err := token.SignedString(signingKey)
+	if err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
+
+func validateAccessToken(ts string) (*claims, error) {
+	token, err := jwt.ParseWithClaims(ts, &claims{}, func(t *jwt.Token) (interface{}, error) {
+		return signingKey, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*claims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid access token")
+	}
+	return claims, nil
 }
