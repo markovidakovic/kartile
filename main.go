@@ -172,9 +172,10 @@ type activityType struct {
 }
 
 type activity struct {
-	Id     int    `json:"id"`
-	Title  string `json:"title"`
-	TypeId int    `json:"type_id"`
+	Id      int    `json:"id"`
+	Title   string `json:"title"`
+	TypeId  int    `json:"type_id"`
+	OwnerId int    `json:"owner_id"`
 }
 
 type account struct {
@@ -475,22 +476,27 @@ func getActivities(w http.ResponseWriter, r *http.Request) ([]activity, error) {
 	return acts, nil
 }
 
-func createActivity(w http.ResponseWriter, r *http.Request) (activity, error) {
+func createActivity(w http.ResponseWriter, r *http.Request) (*activity, error) {
 	type request struct {
 		Title  string `json:"title"`
 		TypeId int    `json:"type_id"`
 	}
-	var data request
+	reqAcc := reqAccount(r)
+	var req request
 	var act activity
-	err := json.NewDecoder(r.Body).Decode(&data)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		return activity{}, err
+		return nil, err
 	}
-	err = srvr.db.QueryRow("INSERT INTO activities (title, type_id) VALUES ($1, $2) RETURNING id, title, type_id", data.Title, data.TypeId).Scan(&act.Id, &act.Title, &act.TypeId)
+	err = srvr.db.QueryRow("INSERT INTO activities (title, type_id, owner_id) VALUES ($1, $2, $3) RETURNING id, title, type_id, owner_id", req.Title, req.TypeId, reqAcc.Id).Scan(&act.Id, &act.Title, &act.TypeId, &act.OwnerId)
 	if err != nil {
-		return activity{}, err
+		return nil, err
 	}
-	return act, nil
+	_, err = srvr.db.Exec("INSERT INTO participants (account_id, activity_id) VALUES ($1, $2)", reqAcc.Id, act.Id)
+	if err != nil {
+		return nil, err
+	}
+	return &act, nil
 }
 
 func handleActivitiesById(w http.ResponseWriter, r *http.Request) {
