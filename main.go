@@ -20,6 +20,7 @@ type contextKey int
 
 const (
 	paramsKey contextKey = iota
+	requestAccKey
 )
 
 var (
@@ -102,8 +103,24 @@ func params(r *http.Request) map[string]string {
 	return nil
 }
 
+func reqAccount(r *http.Request) *account {
+	if ra := r.Context().Value(requestAccKey); ra != nil {
+		ra, ok := ra.(*account)
+		if !ok {
+			return nil
+		}
+		return ra
+	}
+	return nil
+}
+
 func requestWithParams(r *http.Request, params map[string]string) *http.Request {
 	ctx := context.WithValue(r.Context(), paramsKey, params)
+	return r.WithContext(ctx)
+}
+
+func requestWithAccount(r *http.Request, acc *account) *http.Request {
+	ctx := context.WithValue(r.Context(), requestAccKey, acc)
 	return r.WithContext(ctx)
 }
 
@@ -188,23 +205,41 @@ func main() {
 	})
 	r.handleFunc("/auth/signup", handleAuth)
 	r.handleFunc("/auth/tokens/access", handleAuth)
-	r.handleFunc("/activities", handleActivities)
-	r.handleFunc("/activities/{activityId}", handleActivitiesById)
-	r.handleFunc("/activities/types", handleActivityTypes)
-	r.handleFunc("/activities/types/{typeId}", handleActivityTypesById)
-	r.handleFunc("/accounts", handleAccounts)
-	r.handleFunc("/accounts/{accountId}", handleAccountsById)
+	r.handleFunc("/activities", accessTokenMiddleware(handleActivities))
+	r.handleFunc("/activities/{activityId}", accessTokenMiddleware(handleActivitiesById))
+	r.handleFunc("/activities/types", accessTokenMiddleware(handleActivityTypes))
+	r.handleFunc("/activities/types/{typeId}", accessTokenMiddleware(handleActivityTypesById))
+	r.handleFunc("/accounts", accessTokenMiddleware(handleAccounts))
+	r.handleFunc("/accounts/{accountId}", accessTokenMiddleware(handleAccountsById))
 
 	fmt.Println("server running on localhost:5000")
 	http.ListenAndServe(":5000", r)
 }
 
-func accessTokenMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("access token middleware")
-		fmt.Println(r.Header)
-		next.ServeHTTP(w, r)
-	})
+func accessTokenMiddleware(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ah := r.Header.Get("Authorization")
+		if ah == "" || !strings.HasPrefix(ah, "Bearer ") {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		token := strings.TrimPrefix(ah, "Bearer ")
+		c, err := validateAccessToken(token)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var acc account
+		err = srvr.db.QueryRow("SELECT id, name, email FROM accounts WHERE email = $1", c.Email).Scan(&acc.Id, &acc.Name, &acc.Email)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		r = requestWithAccount(r, &acc)
+
+		h(w, r)
+	}
 }
 
 func handleAuth(w http.ResponseWriter, r *http.Request) {
