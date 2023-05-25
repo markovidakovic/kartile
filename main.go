@@ -204,14 +204,14 @@ func main() {
 	r.handleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("hello"))
 	})
-	r.handleFunc("/auth/signup", handleAuth)
-	r.handleFunc("/auth/tokens/access", handleAuth)
-	r.handleFunc("/activities", accessTokenMiddleware(handleActivities))
-	r.handleFunc("/activities/{activityId}", accessTokenMiddleware(handleActivitiesById))
-	r.handleFunc("/activities/types", accessTokenMiddleware(handleActivityTypes))
-	r.handleFunc("/activities/types/{typeId}", accessTokenMiddleware(handleActivityTypesById))
-	r.handleFunc("/accounts", accessTokenMiddleware(handleAccounts))
-	r.handleFunc("/accounts/{accountId}", accessTokenMiddleware(handleAccountsById))
+	r.handleFunc("/auth/signup", enableCorsMiddleware(handleAuth))
+	r.handleFunc("/auth/tokens/access", enableCorsMiddleware(handleAuth))
+	r.handleFunc("/activities", enableCorsMiddleware(accessTokenMiddleware(handleActivities)))
+	r.handleFunc("/activities/{activityId}", enableCorsMiddleware(accessTokenMiddleware(handleActivitiesById)))
+	r.handleFunc("/activities/types", enableCorsMiddleware(accessTokenMiddleware(handleActivityTypes)))
+	r.handleFunc("/activities/types/{typeId}", enableCorsMiddleware(accessTokenMiddleware(handleActivityTypesById)))
+	r.handleFunc("/accounts", enableCorsMiddleware(accessTokenMiddleware(handleAccounts)))
+	r.handleFunc("/accounts/{accountId}", enableCorsMiddleware(accessTokenMiddleware(handleAccountsById)))
 
 	fmt.Println("server running on localhost:5000")
 	http.ListenAndServe(":5000", r)
@@ -239,6 +239,16 @@ func accessTokenMiddleware(h http.HandlerFunc) http.HandlerFunc {
 
 		r = requestWithAccount(r, &acc)
 
+		h(w, r)
+	}
+}
+
+func enableCorsMiddleware(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Set cors headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		h(w, r)
 	}
 }
