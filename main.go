@@ -204,6 +204,7 @@ func main() {
 	r.handleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("hello"))
 	})
+	r.handleFunc("/auth/current", enableCorsMiddleware(accessTokenMiddleware(handleAuth)))
 	r.handleFunc("/auth/signup", enableCorsMiddleware(handleAuth))
 	r.handleFunc("/auth/tokens/access", enableCorsMiddleware(handleAuth))
 	r.handleFunc("/activities", enableCorsMiddleware(accessTokenMiddleware(handleActivities)))
@@ -269,6 +270,18 @@ func handleAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		w.Write(resp)
 	} else if m == "POST" && p == "/auth/tokens/access" {
+		a, err := getAccessToken(w, r)
+		if err != nil {
+			fmt.Println(err)
+		}
+		resp, err := json.Marshal(a)
+		if err != nil {
+			fmt.Println(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp)
+	} else if m == "GET" && p == "/auth/current" {
 		a, err := getAuthAccount(w, r)
 		if err != nil {
 			fmt.Println(err)
@@ -281,6 +294,11 @@ func handleAuth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(resp)
 	}
+}
+
+func getAuthAccount(w http.ResponseWriter, r *http.Request) (*account, error) {
+	reqAcc := reqAccount(r)
+	return reqAcc, nil
 }
 
 func createAccount(w http.ResponseWriter, r *http.Request) (authAccount, error) {
@@ -310,7 +328,7 @@ func createAccount(w http.ResponseWriter, r *http.Request) (authAccount, error) 
 	return resp, nil
 }
 
-func getAuthAccount(w http.ResponseWriter, r *http.Request) (*authAccount, error) {
+func getAccessToken(w http.ResponseWriter, r *http.Request) (*authAccount, error) {
 	type request struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
