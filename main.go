@@ -488,7 +488,7 @@ func handleActivities(w http.ResponseWriter, r *http.Request) {
 }
 
 func getActivities(w http.ResponseWriter, r *http.Request) ([]activity, error) {
-	rows, err := srvr.db.Query("SELECT id, title, type_id FROM activities")
+	rows, err := srvr.db.Query("SELECT id, title, type_id, owner_id FROM activities")
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +497,7 @@ func getActivities(w http.ResponseWriter, r *http.Request) ([]activity, error) {
 	var acts []activity
 	for rows.Next() {
 		var act activity
-		if err := rows.Scan(&act.Id, &act.Title, &act.TypeId); err != nil {
+		if err := rows.Scan(&act.Id, &act.Title, &act.TypeId, &act.OwnerId); err != nil {
 			return nil, err
 		}
 		acts = append(acts, act)
