@@ -568,7 +568,11 @@ func getActivityById(w http.ResponseWriter, r *http.Request) (activity, error) {
 
 func deleteActivityById(w http.ResponseWriter, r *http.Request) error {
 	params := params(r)
-	_, err := srvr.db.Exec("DELETE FROM activities WHERE id = $1", params["activityId"])
+	_, err := srvr.db.Exec("DELETE FROM participants WHERE activity_id = $1", params["activityId"])
+	if err != nil {
+		return err
+	}
+	_, err = srvr.db.Exec("DELETE FROM activities WHERE id = $1", params["activityId"])
 	if err != nil {
 		return err
 	}
