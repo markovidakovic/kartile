@@ -559,7 +559,7 @@ func handleActivitiesById(w http.ResponseWriter, r *http.Request) {
 func getActivityById(w http.ResponseWriter, r *http.Request) (activity, error) {
 	params := params(r)
 	var act activity
-	err := srvr.db.QueryRow("SELECT id, title, type_id FROM activities WHERE id = $1", params["activityId"]).Scan(&act.Id, &act.Title, &act.TypeId)
+	err := srvr.db.QueryRow("SELECT id, title, type_id, owner_id FROM activities WHERE id = $1", params["activityId"]).Scan(&act.Id, &act.Title, &act.TypeId, &act.OwnerId)
 	if err != nil {
 		return activity{}, err
 	}
